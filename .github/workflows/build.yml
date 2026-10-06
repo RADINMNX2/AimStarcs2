@@ -17,10 +17,10 @@ jobs:
     name: Build x64 Release
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v3
 
       - name: Locate solution
         id: sln
@@ -35,7 +35,7 @@ jobs:
       - name: Build with MSBuild
         shell: pwsh
         run: |
-          msbuild "${{ steps.sln.outputs.SLN }}" /restore /m /p:Configuration=Release /p:Platform=x64 /v:minimal /nologo
+          msbuild "${{ steps.sln.outputs.SLN }}" /restore /m /p:Configuration=Release /p:Platform=x64 /p:UseOfAtl=Static /v:minimal /nologo
 
       - name: Rename EXE to AimStar-${{ github.sha }}.exe
         id: exe
