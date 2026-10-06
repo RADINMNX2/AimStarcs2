@@ -35,7 +35,7 @@ jobs:
       - name: Build with MSBuild
         shell: pwsh
         run: |
-          msbuild "${{ steps.sln.outputs.SLN }}" /restore /m /p:Configuration=Release /p:Platform=x64 /p:UseOfAtl=Static /v:minimal /nologo
+          msbuild "${{ steps.sln.outputs.SLN }}" /restore /m /p:Configuration=Release /p:Platform=x64 /v:minimal /nologo
 
       - name: Rename EXE to AimStar-${{ github.sha }}.exe
         id: exe
