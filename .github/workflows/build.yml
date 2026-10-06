@@ -1,62 +1,100 @@
 name: build x64 release ci
 
-on: 
+on:
   push:
-    branches: [ "main" ]
-  #pull_request:
-    #branches: [ "main" ]
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
+    name: Build x64 Release
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup MSBuild path
-        uses: microsoft/setup-msbuild@v1
-      - name: Build with MSBuild
-        run: msbuild /p:Configuration=Release /p:Platform=x64 CS2_External.sln
-      - name: Rename EXE to AimStar-dev-${{github.sha}}.exe
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Locate solution
+        id: sln
+        shell: pwsh
         run: |
-          del AimStar-*.exe
-          ren AimStar.exe AimStar-${{github.sha}}.exe
-        working-directory: .\x64\Release\
+          $sln = Get-ChildItem -Path . -Filter *.sln -Recurse | Select-Object -First 1
+          if (-not $sln) { throw "No .sln found in repository" }
+          "SLN=$($sln.FullName)" >> $env:GITHUB_OUTPUT
+          "DIR=$($sln.Directory.FullName)" >> $env:GITHUB_OUTPUT
+          Write-Host "Solution: $($sln.FullName)"
+
+      - name: Build with MSBuild
+        shell: pwsh
+        run: |
+          msbuild "${{ steps.sln.outputs.SLN }}" /restore /m /p:Configuration=Release /p:Platform=x64 /v:minimal /nologo
+
+      - name: Rename EXE to AimStar-${{ github.sha }}.exe
+        id: exe
+        shell: pwsh
+        run: |
+          $outDir = Join-Path "${{ steps.sln.outputs.DIR }}" "x64\Release"
+          if (-not (Test-Path -LiteralPath $outDir)) { throw "Output directory missing: $outDir" }
+          $built = Get-ChildItem -LiteralPath $outDir -Filter *.exe | Select-Object -First 1
+          if (-not $built) { throw "No .exe was produced in $outDir" }
+          $target = Join-Path $outDir "AimStar-${{ github.sha }}.exe"
+          if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force }
+          Rename-Item -LiteralPath $built.FullName -NewName (Split-Path -Leaf $target)
+          "EXE=$target" >> $env:GITHUB_OUTPUT
+          Write-Host "Renamed to: $target"
+
       - name: Upload the output
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ci
-          path: .\x64\Release\*
+          path: ${{ steps.exe.outputs.EXE }}
+          if-no-files-found: error
+          retention-days: 30
+
   create_release:
-    runs-on: ubuntu-latest
-    needs: build
     name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
       - name: Download Artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: ci
+          path: dist
+
       - name: Delete tag
-        run: gh release delete autobuild --cleanup-tag
+        continue-on-error: true
+        run: gh release delete autobuild --cleanup-tag --yes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run latest-tag
+        continue-on-error: true
         uses: EndBug/latest-tag@84c87607fcb948bcef069c9a27445e653113979f
         with:
           ref: autobuild
+
       - name: automatic Release ci
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          name: autobuild [${{github.sha}}]
+          name: autobuild [${{ github.sha }}]
           tag_name: autobuild
           body: |
             **This release has been built by Github Actions**
             [Link to build](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
             Full Commit Hash of Latest autobuild:
             ```
-            ${{github.sha}}
+            ${{ github.sha }}
             ```
             No support for any autobuild version except the latest autobuild
-          files: |
-            AimStar-${{github.sha}}.exe
+          files: dist/AimStar-${{ github.sha }}.exe
+          fail_on_unmatched_files: true
           prerelease: true
-          
